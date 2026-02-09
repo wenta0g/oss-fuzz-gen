@@ -838,7 +838,7 @@ class MemoryPrototyper(Prototyper):
         "language": getattr(bench, "language", "") or "",
         "target_name": getattr(bench, "target_name", "") or "",
         "function_signature": function_signature,
-        "compile_log": compile_log[:2000],
+        "compile_log": query_text[-2000:], # get the bottom of the stderr block as context
         "fuzz_target": fuzz_target_source[:2000],
         "build_script": build_script_source[:2000],
         "prototyper_failure_prompt": prototyper_failure_prompt,
@@ -907,9 +907,11 @@ class MemoryPrototyper(Prototyper):
     # Case 1: Successful → flush stats + updater.
 
     if build_result_alt and build_result_alt.success:
+      # New fuzz target + default build.sh can compile, binary exists
+      # function being referenced
       logger.info(
           "Default /src/build.sh works perfectly, no need for a new "
-          "buid script",
+          "build script",
           trial=build_result.trial,
       )
       logger.info(
@@ -922,6 +924,8 @@ class MemoryPrototyper(Prototyper):
       return build_result_alt, None
 
     if build_result_ori and build_result_ori.success:
+      # New fuzz target and new build.sh can compile, binary exists
+      # function being referenced
       logger.info(
           "***** %s succeeded in %02d rounds *****",
           self.name,
@@ -1056,7 +1060,10 @@ class MemoryPrototyper(Prototyper):
           f"`{binary_path}`.\n"
           "Below you will see the current fuzz target, build script, and "
           "compilation log. Carefully analyze the build steps to understand "
-          "why the binary is not written to the correct location.\n\n"
+          "why the binary is not written to the correct location. "
+          "You should also double-check your build script, to see if commands "
+          "or flags force the compiler to ignore compilation errors, thus produce a"
+          " false positive compilation successful message\n\n"
           "YOU MUST MODIFY THE BUILD SCRIPT to ensure the binary is saved to "
           f"{binary_path}.\n"
           "When you have a solution later, make sure you output the FULL fuzz "
@@ -1078,7 +1085,10 @@ class MemoryPrototyper(Prototyper):
           f"`{binary_path}`.\n"
           "Below you will see the current fuzz target and compilation log. "
           "Carefully analyze them to understand why the binary is not written "
-          "to the correct location.\n\n"
+          "to the correct location. "
+          "You should also double-check `/src/build.bk.sh` , to see if commands "
+          "or flags force the compiler to ignore compilation errors, thus produce a"
+          " false positive compilation successful message\n\n"
           "YOU MUST MODIFY THE BUILD SCRIPT to ensure the binary is saved to "
           f"{binary_path}.\n"
           "When you have a solution later, make sure you output the FULL fuzz "
@@ -1099,7 +1109,10 @@ class MemoryPrototyper(Prototyper):
           f"`{binary_path}`.\n"
           "Below you will see the current fuzz target and compilation log. "
           "Carefully analyze them to understand why the binary is not written "
-          "to the correct location.\n\n"
+          "to the correct location."
+          "You should also double-check `/src/build.bk.sh` , to see if commands "
+          "or flags force the compiler to ignore compilation errors, thus produce a"
+          " false positive compilation successful message\n\n"
           "YOU MUST MODIFY THE BUILD SCRIPT to ensure the binary is saved to "
           f"{binary_path}.\n"
           "When you have a solution later, make sure you output the FULL fuzz "
