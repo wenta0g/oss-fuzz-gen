@@ -18,6 +18,8 @@ from memory_helper.cloudsql import (cloud_sql_connect_smart,
                                     maybe_register_successful_fix,
                                     update_stats_from_buffer)
 from results import BuildResult, Result
+from memory_helper.errors import ERROR_SIGNATURE
+
 
 MAX_CANDIDATES = 5
 CANDIDATE_PREVIEW_LEN = 400
@@ -135,32 +137,51 @@ class MemoryPrototyper(Prototyper):
       self._chat_blocks.append(text)
     return text
 
-  def smart_truncate_log(self, text: str, max_chars: int = 15000) -> str:
+
+  def pinpoint_err_msg_location_idx(self, raw_err_text: str) -> int:
+    """Use pattern matching heuristics to pinpoint the
+    true error message from stderr noise"""
+    last_match = None
+    for match in ERROR_SIGNATURE.finditer(raw_err_text):
+      last_match = match
+    return last_match.start() if last_match else -1
+
+
+  def smart_truncate_log(self, text: str, max_chars: int = 10000, raw_err_text: str = "") -> str:
     """Intelligently truncate compilation log,
     keeping the most relevant parts."""
-    if len(text) <= max_chars:
-      return text
+    # length is not the biggest issue, we double-check if true error message in compile_log is cut away
 
-    # If we have <stderr> tags, prioritize keeping them
+    prompt_truncate_signal = text.rfind("(truncated due to exceeding input token limit)")
     stderr_start = text.find("<stderr>")
     stderr_end = text.rfind("</stderr>")
 
     if stderr_start != -1 and stderr_end != -1:
-      stderr_content = text[stderr_start:stderr_end + 9]  # Include tags
+      stderr_content = text[stderr_start:stderr_end + 9]
 
-      # If stderr fits, keep it and add context from end of log
+      if prompt_truncate_signal != -1 and raw_err_text.strip() != "":
+        err_idx = self.pinpoint_err_msg_location_idx(raw_err_text)
+
+        # we found locations showing true error message
+        if err_idx != -1:
+          len_err = stderr_end - stderr_start
+          end_index = min(len(raw_err_text), err_idx + 200)
+          start_index = max(0, end_index - len_err)
+          stderr_content = "<stderr>" + raw_err_text[start_index:end_index] + "</stderr>"
+
+      # get the correct stderr content, do smart truncation
       if len(stderr_content) < max_chars:
-        remaining_chars = max_chars - len(stderr_content)
-        # Take the tail of the log for context (e.g. build summary)
-        tail_content = text[-remaining_chars:]
-        return (f"...[truncated]...\n{stderr_content}\n"
-                f"...[context]...\n{tail_content}")
-      # If stderr is too big, keep the
-      # end of stderr (most likely place for error)
+        return (f"...[context]...\n{text[:stderr_start]}\n"
+          f"...[truncated]...\n{stderr_content}")
       return f"...[truncated]...\n{stderr_content[-max_chars:]}"
 
-    # Fallback to standard tail truncation
+    # no stderr tag found, just return given the length
+    if len(text) <= max_chars:
+      return text
+
+    # fallback to standard tail truncation
     return f"...[truncated]...\n{text[-max_chars:]}"
+
 
   def _get_confidence_note(self, plan: dict) -> str:
     """Returns a note explanation based on the confidence score."""
@@ -978,7 +999,7 @@ class MemoryPrototyper(Prototyper):
       log_content = selected_result.compile_log or ""
       # Heuristic: limit log to 15k chars (approx 4k tokens).
       # This balances context with token limits.
-      sel_compile_log = self.smart_truncate_log(log_content, max_chars=15000)
+      sel_compile_log = self.smart_truncate_log(log_content, max_chars=15000, raw_err_text=selected_result.compile_error)
 
       fixer = prompt_builder.PrototyperFixerTemplateBuilder(
           model=self.llm,
@@ -1129,6 +1150,7 @@ class MemoryPrototyper(Prototyper):
     final_compile_log = self.smart_truncate_log(
         build_result.compile_log or "",
         max_chars=15000,
+        raw_err_text=build_result.compile_error,
     )
 
     fixer = prompt_builder.PrototyperFixerTemplateBuilder(
