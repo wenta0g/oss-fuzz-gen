@@ -262,6 +262,11 @@ def parse_args() -> argparse.Namespace:
       action='store_true',
       default=False,
       help='Enable CloudSQL-backed error memory for build fixing.')
+  parser.add_argument('--memory-project-filter',
+                      type=str,
+                      choices=['all', 'exclude-current', 'only-current'],
+                      default='all',
+                      help='Project-based filter for error memory retrieval.')
 
   args = parser.parse_args()
   if args.num_samples:

@@ -791,11 +791,24 @@ class MemoryPrototyper(Prototyper):
       self._last_normalized_error = ""
       return "", None
 
+    bench = build_result.benchmark
+    current_project = getattr(bench, "project", "") or ""
+    project_filter = getattr(self.args, "memory_project_filter", "all")
+    include_project = None
+    exclude_project = None
+
+    if project_filter == "exclude-current":
+      exclude_project = current_project
+    elif project_filter == "only-current":
+      include_project = current_project
+
     normalized, hits = knn_search_error_full_with_norm(
         query_text,
         top_k=5,
         trial=build_result.trial,
-        embedder=self.text_embedding_model)
+        embedder=self.text_embedding_model,
+        include_project=include_project,
+        exclude_project=exclude_project)
 
     if not hits:
       # KNN executed but found no neighbors for this round.
@@ -809,11 +822,9 @@ class MemoryPrototyper(Prototyper):
     self._last_raw_error_text = query_text
     self._last_normalized_error = normalized
 
-    bench = build_result.benchmark
     function_signature = getattr(bench, "function_signature", "") or ""
     fuzz_target_source = build_result.fuzz_target_source or ""
     build_script_source = build_result.build_script_source or ""
-    current_project = getattr(bench, "project", "") or ""
 
     # Stats: record retrievals (including cross-project).
     for h in hits:

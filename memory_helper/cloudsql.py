@@ -165,7 +165,9 @@ def _knn_search_error_full_core(
     top_k: int,
     embedder: VertexEmbeddingModel,
     trial: Optional[int] = None,
-    confidence_levels: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+    confidence_levels: Optional[List[int]] = None,
+    include_project: Optional[str] = None,
+    exclude_project: Optional[str] = None) -> List[Dict[str, Any]]:
   """Core KNN lookup given an already-normalized error string."""
   # Default to confidence levels 2 and 3 if not specified
   if confidence_levels is None:
@@ -208,9 +210,20 @@ def _knn_search_error_full_core(
           ) AS dist
         FROM entries
         WHERE confidence_level IN ({placeholders})
+    """
+  params: List[Any] = [vec_str] + confidence_levels
+  if include_project:
+    sql += " AND project = %s"
+    params.append(include_project)
+  if exclude_project:
+    sql += " AND project != %s"
+    params.append(exclude_project)
+
+  sql += """
         ORDER BY dist ASC
         LIMIT %s
     """
+  params.append(top_k)
 
   rows: List[Dict[str, Any]] = []
   with cloud_sql_connect_smart() as conn:
@@ -219,9 +232,7 @@ def _knn_search_error_full_core(
                 top_k,
                 confidence_levels,
                 trial=trial)
-      # Param order: vector_json, *conf_levels, top_k
-      params = [vec_str] + confidence_levels + [top_k]
-      cur.execute(sql, params)
+      cur.execute(sql, tuple(params))
       fetched = cur.fetchall()
       _log_info("[KNN] SQL returned %d rows.", len(fetched), trial=trial)
 
@@ -259,7 +270,9 @@ def knn_search_error_full_with_norm(
     embedder: VertexEmbeddingModel,
     top_k: int = 5,
     trial: Optional[int] = None,
-    confidence_levels: Optional[List[int]] = None
+    confidence_levels: Optional[List[int]] = None,
+    include_project: Optional[str] = None,
+    exclude_project: Optional[str] = None
 ) -> Tuple[str, List[Dict[str, Any]]]:
   """KNN that returns BOTH the normalized error text and the hits.
 
@@ -285,7 +298,9 @@ def knn_search_error_full_with_norm(
                                      top_k=top_k,
                                      trial=trial,
                                      embedder=embedder,
-                                     confidence_levels=confidence_levels)
+                                     confidence_levels=confidence_levels,
+                                     include_project=include_project,
+                                     exclude_project=exclude_project)
 
   _log_info(
       "[KNN] Final result: normalized length=%d, hits=%d",
@@ -302,13 +317,18 @@ def knn_search_error_full(
     embedder: VertexEmbeddingModel,
     top_k: int = 5,
     trial: Optional[int] = None,
-    confidence_levels: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+    confidence_levels: Optional[List[int]] = None,
+    include_project: Optional[str] = None,
+    exclude_project: Optional[str] = None) -> List[Dict[str, Any]]:
   """Legacy API: returns only the list of hits."""
-  _, rows = knn_search_error_full_with_norm(query_error_text,
-                                            top_k=top_k,
-                                            trial=trial,
-                                            embedder=embedder,
-                                            confidence_levels=confidence_levels)
+  _, rows = knn_search_error_full_with_norm(
+      query_error_text,
+      top_k=top_k,
+      trial=trial,
+      embedder=embedder,
+      confidence_levels=confidence_levels,
+      include_project=include_project,
+      exclude_project=exclude_project)
   return rows
 
 
