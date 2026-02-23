@@ -23,6 +23,7 @@ from .errors import (classify_error, latest_stderr_block, normalize_err_text,
 INSTANCE_CONNECTION_NAME = "uom-ossfuzz-gen:australia-southeast1:ofg-test"
 DB_NAME = "ofg"
 _DB_USER = None
+_CONNECTOR = None  # Singleton Connector instance
 
 
 def _log_info(msg: str, *args, trial: Optional[int] = None) -> None:
@@ -82,12 +83,11 @@ def cloud_sql_connect_smart():
     Attempts to connect via Local Proxy first.
     If that fails, falls back to Google Python Connector.
     """
-  global _DB_USER
+  global _DB_USER, _CONNECTOR
   if _DB_USER is None:
     _DB_USER = get_credentials()
 
   conn = None
-  connector = None  # Only initialized if we use the fallback method
 
   # ---------------------------------------------------------
   # Attempt 1: Primary (Local Proxy)
@@ -99,42 +99,49 @@ def cloud_sql_connect_smart():
                            user=_DB_USER,
                            password="",
                            ssl_disabled=True,
-                           connect_timeout=10)
+                           connect_timeout=30)  # Increased timeout
   except Exception as proxy_e:
     _log_info(f"proxy connection failed: {proxy_e}", trial=1)
 
     # ---------------------------------------------------------
     # Attempt 2: Fallback (Google Connector)
     # ---------------------------------------------------------
-    try:
-      _log_info("fallback to connect with GSA account", trial=1)
-      connector = Connector(ip_type=IPTypes.PUBLIC, refresh_strategy="LAZY")
-      conn = connector.connect(INSTANCE_CONNECTION_NAME,
-                               "pymysql",
-                               user=_DB_USER,
-                               db="ofg",
-                               enable_iam_auth=True)
-    except Exception as connector_e:
-      _log_info(f"Fallback connection also failed: {connector_e}", trial=1)
-      # If the connector was created but connect() failed, close it.
-      if connector:
-        connector.close()
-      raise connector_e  # Raise the final error to the runner
+    last_err = None
+    for attempt in range(1, 4):  # Retry loop
+      try:
+        _log_info(f"fallback attempt {attempt} to connect with GSA account",
+                  trial=1)
+        if _CONNECTOR is None:
+          # Use PERIODIC refresh for better background handling
+          _CONNECTOR = Connector(ip_type=IPTypes.PUBLIC,
+                                 refresh_strategy="PERIODIC")
+
+        conn = _CONNECTOR.connect(INSTANCE_CONNECTION_NAME,
+                                  "pymysql",
+                                  user=_DB_USER,
+                                  db="ofg",
+                                  enable_iam_auth=True,
+                                  connect_timeout=30)
+        if conn:
+          break
+      except Exception as connector_e:
+        last_err = connector_e
+        _log_info(f"Fallback attempt {attempt} failed: {connector_e}", trial=1)
+        if attempt < 3:
+          import time
+          time.sleep(2)  # Short backoff
+
+    if not conn and last_err:
+      raise last_err
 
   # ---------------------------------------------------------
   # Phase 3: Yield & Cleanup
   # ---------------------------------------------------------
   try:
-    # Yield the successful connection (from either source) to the inner block
     yield conn
   finally:
-    # Cleanup Connection
     if conn:
       conn.close()
-
-    # Cleanup Connector (Only if it was initialized during fallback)
-    if connector:
-      connector.close()
 
 
 def _prepare_normalized(query_error_text: str) -> Tuple[str, str]:
