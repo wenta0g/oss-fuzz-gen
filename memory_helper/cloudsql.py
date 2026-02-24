@@ -114,7 +114,7 @@ def cloud_sql_connect_smart():
         if _CONNECTOR is None:
           # Use PERIODIC refresh for better background handling
           _CONNECTOR = Connector(ip_type=IPTypes.PUBLIC,
-                                 refresh_strategy="PERIODIC")
+                                 refresh_strategy="LAZY")
 
         conn = _CONNECTOR.connect(INSTANCE_CONNECTION_NAME,
                                   "pymysql",
