@@ -13,8 +13,7 @@ from agent.prototyper import Prototyper  # existing Prototyper
 from llm_toolkit import prompt_builder
 from llm_toolkit.prompts import Prompt
 from llm_toolkit.text_embedder import VertexEmbeddingModel
-from memory_helper.cloudsql import (cloud_sql_connect_smart,
-                                    knn_search_error_full_with_norm,
+from memory_helper.cloudsql import (knn_search_error_full_with_norm,
                                     maybe_register_successful_fix,
                                     update_stats_from_buffer)
 from memory_helper.errors import ERROR_SIGNATURE
@@ -103,27 +102,6 @@ class MemoryPrototyper(Prototyper):
         temperature=0.0  # Required by base __init__, but ignored by logic
     )
 
-  def _initial_prompt(self, results: list[Result]) -> Prompt:
-    """
-    we do a DB connection check before prompt
-    to delete in real environment
-    """
-    try:
-      with cloud_sql_connect_smart() as conn:
-        with conn.cursor() as cursor:
-          cursor.execute("SHOW TABLES")
-          result_sql = cursor.fetchall()
-          logger.info(
-              f"connection successful, query returned:"
-              f" {result_sql} \n continue",
-              trial=results[-1].trial)
-    except Exception as e:
-      logger.error(
-          f"SQL connection fail, early abort, connection error message is: {e}",
-          trial=results[-1].trial)
-      raise RuntimeError(
-          "Agent execution aborted: Database is unreachable.") from e
-    return super()._initial_prompt(results)
 
   def chat_llm(self, *args, **kwargs) -> str:
     """Wrapper around Prototyper.chat_llm that also caches raw responses.
@@ -971,8 +949,12 @@ class MemoryPrototyper(Prototyper):
       return build_result_ori, None
 
     # --- Precompute memory plan once for this failing BuildResult ---
-    _, plan = self._maybe_get_memory_plan(build_result)
-
+    try:
+      _, plan = self._maybe_get_memory_plan(build_result)
+    except Exception as e:
+      logger.error(
+          f"***** failed to get memory plan, error: {e}*****", trial=build_result.trial)
+      plan = None
     extra_hints = ""
     if plan is not None:
       extra_hints = (

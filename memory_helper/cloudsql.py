@@ -123,13 +123,14 @@ def cloud_sql_connect_smart():
                                   enable_iam_auth=True,
                                   connect_timeout=30)
         if conn:
+          conn.ping(reconnect=False)
           break
       except Exception as connector_e:
         last_err = connector_e
         _log_info(f"Fallback attempt {attempt} failed: {connector_e}", trial=1)
         if attempt < 3:
           import time
-          time.sleep(2)  # Short backoff
+          time.sleep(10 * attempt)  # Short backoff
 
     if not conn and last_err:
       raise last_err
