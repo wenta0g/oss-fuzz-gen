@@ -1,0 +1,11 @@
+functions:
+- name: _ZN3fit8internal11null_targetIvE6invokeEPv
+  params:
+  - name: ''
+    type: 'bool '
+  return_type: void
+  signature: void fit::internal::null_target<void>::invoke(void *)
+language: c++
+project: pigweed
+target_name: get_int_bounded_fuzzer
+target_path: /src/pigweed/pw_random/get_int_bounded_fuzzer.cc
