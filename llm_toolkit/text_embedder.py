@@ -124,12 +124,26 @@ class VertexEmbeddingModel(VertexAIModel):
 
   def _embed_single_text(self, text: str) -> list[float]:
     """Wraps the Vertex AI call. Returns vector or raises exception."""
-    # We reuse the specific task type from your original logic
-    model = self.get_model()
-    inputs = [TextEmbeddingInput(text=text, task_type="RETRIEVAL_DOCUMENT")]
+    import vertexai
+    import google.cloud.aiplatform.initializer as initializer
 
-    # This call might raise exceptions (handled in _embed_chunk_or_split)
-    embeddings = model.get_embeddings(inputs)
+    # 1. Save current global location (e.g., 'global' for Gemini 3.1)
+    prev_location = initializer.global_config.location
+
+    try:
+      # 2. Briefly switch to 'us-central1' using the official init method
+      # Note: Direct assignment to global_config.location is not allowed (read-only property)
+      vertexai.init(location='us-central1')
+
+      # We reuse the specific task type from your original logic
+      model = self.get_model()
+      inputs = [TextEmbeddingInput(text=text, task_type="RETRIEVAL_DOCUMENT")]
+
+      # This call might raise exceptions (handled in _embed_chunk_or_split)
+      embeddings = model.get_embeddings(inputs)
+    finally:
+      # 3. Restore the original location for Gemini or other models
+      vertexai.init(location=prev_location)
 
     if not embeddings:
       return []
