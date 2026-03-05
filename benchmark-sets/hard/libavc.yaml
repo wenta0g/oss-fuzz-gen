@@ -1,15 +1,15 @@
-functions:
-- name: irc_add_picture_to_stack_re_enc
-  params:
-  - name: rate_control_api
-    type: 'bool '
-  - name: i4_enc_pic_id
-    type: int
-  - name: e_pic_type
-    type: int
-  return_type: void
-  signature: void irc_add_picture_to_stack_re_enc(rate_control_api_t *, WORD32, picture_type_e)
-language: c++
-project: libavc
-target_name: avc_enc_fuzzer
-target_path: /src/libavc/fuzzer/avc_enc_fuzzer.cpp
+"functions":
+- "name": "irc_add_picture_to_stack_re_enc"
+  "params":
+  - "name": "rate_control_api"
+    "type": "bool "
+  - "name": "i4_enc_pic_id"
+    "type": "int"
+  - "name": "e_pic_type"
+    "type": "int"
+  "return_type": "void"
+  "signature": "void irc_add_picture_to_stack_re_enc(rate_control_api_t *, WORD32, picture_type_e)"
+"language": "c++"
+"project": "libavc"
+"target_name": "avc_enc_fuzzer"
+"target_path": "/src/libavc/fuzzer/avc_enc_fuzzer.cpp"
