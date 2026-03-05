@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import atexit
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,6 +25,17 @@ INSTANCE_CONNECTION_NAME = "uom-ossfuzz-gen:australia-southeast1:ofg-test"
 DB_NAME = "ofg"
 _DB_USER = None
 _CONNECTOR = None  # Singleton Connector instance
+
+def _cleanup_connector():
+    """Ensure the Cloud SQL Connector's asyncio loop and sessions are closed."""
+    global _CONNECTOR
+    if _CONNECTOR is not None:
+        try:
+            _CONNECTOR.close()
+        except Exception as e:
+            print(f"Error closing Cloud SQL Connector: {e}")
+
+atexit.register(_cleanup_connector)
 
 
 def _log_info(msg: str, *args, trial: Optional[int] = None) -> None:
