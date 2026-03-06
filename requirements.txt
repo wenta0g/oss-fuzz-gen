@@ -65,7 +65,7 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.43
     # via -r requirements.in
-google-adk==0.5.0
+google-adk==1.26.0
     # via -r requirements.in
 google-api-core[grpc]==2.25.0rc1
     # via
@@ -136,7 +136,7 @@ google-crc32c==1.7.1
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-genai==1.16.1
+google-genai==1.65.0
     # via google-adk
 google-resumable-media==2.7.2
     # via
