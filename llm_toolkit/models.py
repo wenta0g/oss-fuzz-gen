@@ -936,29 +936,11 @@ class GeminiV1D5Chat(GeminiV1D5):
                    config: dict[str, Any]) -> Any:
     """Generates chat response."""
     logger.info('%s generating response with config: %s', self.name, config)
-    response = client.send_message(
+    return client.send_message(
         prompt,
         stream=False,
         generation_config=config,
-        safety_settings=self.safety_config)
-    
-    try:
-      return response.text  # type: ignore
-    except ValueError as e:
-      # If the model emits a MALFORMED_FUNCTION_CALL, the ChatSession SDK still 
-      # appends an empty ModelMessage to its internal _history length.
-      # This corrupts the session state and breaks subsequent requests.
-      if hasattr(client, '_history') and len(client._history) >= 2:
-         last_message = client._history[-1]
-         if last_message.role == "model" and not last_message.parts:
-             client._history.pop()  # remove empty model message
-             client._history.pop()  # remove original user message
-             
-      if response.candidates and hasattr(response.candidates[0], 'finish_message') and response.candidates[0].finish_message:
-        return response.candidates[0].finish_message
-      if "MALFORMED_FUNCTION_CALL" in str(e):
-        return str(e)
-      raise
+        safety_settings=self.safety_config).text  # type: ignore
 
   def truncate_prompt(self,
                       raw_prompt_text: Any,
