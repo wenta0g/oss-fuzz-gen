@@ -31,6 +31,19 @@ from google.genai import errors, types
 
 import logger
 import utils
+
+try:
+    import pydantic
+    if 'thought_signature' not in types.FunctionCall.model_fields:
+        types.FunctionCall.model_fields['thought_signature'] = pydantic.fields.FieldInfo(
+            annotation=str | None,
+            default=None
+        )
+        types.FunctionCall.model_rebuild(force=True)
+except Exception as e:
+    # Log the failure but allow the agent to try to start anyway
+    logger.warning("Failed to patch FunctionCall schema: %s", e)
+
 from data_prep import introspector
 from experiment import benchmark as benchmarklib
 from llm_toolkit.models import LLM, VertexAIModel
