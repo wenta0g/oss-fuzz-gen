@@ -466,7 +466,7 @@ def update_stats_from_buffer(
             )):
           continue
 
-          params = {
+        params = {
             "id": str(entry_id),
             "retrieved": int(deltas.get("retrieved", 0)),
             "attempted": int(deltas.get("attempted", 0)),
