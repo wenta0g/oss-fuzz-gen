@@ -21,6 +21,40 @@ from llm_toolkit.text_embedder import VertexEmbeddingModel
 from .errors import (classify_error, latest_stderr_block, normalize_err_text,
                      normalize_err_text_fallback)
 
+import time
+import functools
+
+def retry_cloudsql(max_retries: int = 3, base_delay: float = 2.0):
+  """Decorator to retry Cloud SQL operations on transient database errors.
+  Catches Exceptions (like lock timeouts, connection drops, PyMySQL errors)
+  and retries with exponential backoff before ultimately raising.
+  """
+  def decorator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+      trial = kwargs.get('trial', -1)
+      last_err = None
+      for attempt in range(1, max_retries + 1):
+        try:
+          return func(*args, **kwargs)
+        except Exception as e:
+          last_err = e
+          if attempt < max_retries:
+            sleep_time = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "[CloudSQL Retry] %s failed (attempt %d/%d): %s. "
+                "Retrying in %ss...", func.__name__, attempt, max_retries, e, sleep_time,
+                trial=trial)
+            time.sleep(sleep_time)
+          else:
+            logger.warning(
+                "[CloudSQL Retry] %s failed after %d attempts: %s", func.__name__, max_retries, e,
+                trial=trial)
+      if last_err:
+        raise last_err
+    return wrapper
+  return decorator
+
 INSTANCE_CONNECTION_NAME = "uom-ossfuzz-gen:australia-southeast1:ofg-test"
 DB_NAME = "ofg"
 _DB_USER = None
@@ -36,17 +70,6 @@ def _cleanup_connector():
             print(f"Error closing Cloud SQL Connector: {e}")
 
 atexit.register(_cleanup_connector)
-
-
-def _log_info(msg: str, *args, trial: Optional[int] = None) -> None:
-  """Helper to always provide a trial kwarg to OFG logger."""
-  t = -1 if trial is None else trial
-  logger.info(msg, *args, trial=t)
-
-
-def _log_warning(msg: str, *args, trial: Optional[int] = None) -> None:
-  t = -1 if trial is None else trial
-  logger.warning(msg, *args, trial=t)
 
 
 def get_credentials():
@@ -90,7 +113,7 @@ def get_credentials():
 
 
 @contextmanager
-def cloud_sql_connect_smart():
+def cloud_sql_connect_smart(trial: Optional[int] = None):
   """
     Attempts to connect via Local Proxy first.
     If that fails, falls back to Google Python Connector.
@@ -113,7 +136,7 @@ def cloud_sql_connect_smart():
                            ssl_disabled=True,
                            connect_timeout=30)  # Increased timeout
   except Exception as proxy_e:
-    _log_info(f"proxy connection failed: {proxy_e}", trial=1)
+    logger.info("proxy connection failed: %s", proxy_e, trial=trial)
 
     # ---------------------------------------------------------
     # Attempt 2: Fallback (Google Connector)
@@ -121,8 +144,8 @@ def cloud_sql_connect_smart():
     last_err = None
     for attempt in range(1, 4):  # Retry loop
       try:
-        _log_info(f"fallback attempt {attempt} to connect with GSA account",
-                  trial=1)
+        logger.info("fallback attempt %d to connect with GSA account", attempt,
+                  trial=trial)
         if _CONNECTOR is None:
           # Use PERIODIC refresh for better background handling
           _CONNECTOR = Connector(ip_type=IPTypes.PUBLIC,
@@ -139,7 +162,7 @@ def cloud_sql_connect_smart():
           break
       except Exception as connector_e:
         last_err = connector_e
-        _log_info(f"Fallback attempt {attempt} failed: {connector_e}", trial=1)
+        logger.info("Fallback attempt %d failed: %s", attempt, connector_e, trial=trial)
         if attempt < 3:
           import time
           time.sleep(10 * attempt)  # Short backoff
@@ -180,6 +203,7 @@ def _embed_normalized(normalized: str,
   return vec_list[0] or []
 
 
+@retry_cloudsql(max_retries=3, base_delay=2.0)
 def _knn_search_error_full_core(
     normalized: str,
     top_k: int,
@@ -194,21 +218,24 @@ def _knn_search_error_full_core(
     confidence_levels = [2, 3]
 
   if not normalized.strip():
-    _log_info("[KNN] Empty normalized error → return [].", trial=trial)
+    logger.info("[KNN] Empty normalized error → return [].", trial=trial)
     return []
 
-  vec = _embed_normalized(normalized, embedder)
-  if not vec:
-    _log_info("[KNN] Embedding failed or returned empty vector.", trial=trial)
+  vec_list = embedder.embed_texts_error_norm([normalized])
+  if not vec_list or not vec_list[0]:
+    logger.warning("maybe_register_successful_fix: Embedding failed, skipping insert.", trial=trial)
     return []
 
-  vec_str = json.dumps(vec)
-  _log_info("[KNN] Embedding vector prepared (len=%d).", len(vec), trial=trial)
+  vec_str = json.dumps(vec_list[0])
+  logger.info(
+      "[KNN] Embedding vector prepared (len=%d).",
+      len(vec_list[0]),
+      trial=trial)
 
   # Build placeholders for IN clause
   if not confidence_levels:
-    # Fallback if someone passes empty list explicitly -> return nothing?
-    _log_info("[KNN] No confidence levels provided → return [].", trial=trial)
+    # Fallback if someone passes empty list explicitly → return nothing?
+    logger.info("[KNN] No confidence levels provided → return [].", trial=trial)
     return []
 
   placeholders = ", ".join(["%s"] * len(confidence_levels))
@@ -246,15 +273,15 @@ def _knn_search_error_full_core(
   params.append(top_k)
 
   rows: List[Dict[str, Any]] = []
-  with cloud_sql_connect_smart() as conn:
+  with cloud_sql_connect_smart(trial=trial) as conn:
     with conn.cursor() as cur:
-      _log_info("[KNN] Executing SQL top_k=%d, conf=%s",
+      logger.info("[KNN] Executing SQL top_k=%d, conf=%s",
                 top_k,
                 confidence_levels,
                 trial=trial)
       cur.execute(sql, tuple(params))
       fetched = cur.fetchall()
-      _log_info("[KNN] SQL returned %d rows.", len(fetched), trial=trial)
+      logger.info("[KNN] SQL returned %d rows.", len(fetched), trial=trial)
 
       for (
           id_,
@@ -277,11 +304,11 @@ def _knn_search_error_full_core(
             "orig_fuzz_target": orig_ft,
             "patch_text": patch_text,
             "fix_action": fix_action,
-            "confidence_level": conf_level,
+              "confidence_level": conf_level,
             "distance": float(dist),
         })
 
-  _log_info("[KNN] Returning %d processed rows.", len(rows), trial=trial)
+  logger.info("[KNN] Returning %d processed rows.", len(rows), trial=trial)
   return rows
 
 
@@ -300,7 +327,7 @@ def knn_search_error_full_with_norm(
         normalized, hits = knn_search_error_full_with_norm(query_text, top_k=5)
     """
   if Connector is None:
-    _log_info(
+    logger.info(
         "Cloud SQL deps not available; "
         "knn_search_error_full_with_norm() returning ('', []).",
         trial=trial,
@@ -309,10 +336,10 @@ def knn_search_error_full_with_norm(
 
   _, normalized = _prepare_normalized(query_error_text)
 
-  _log_info("\n[KNN] Normalized error text being embedded:\n%s",
+  logger.info("\n[KNN] Normalized error text being embedded:\n%s",
             normalized,
             trial=trial)
-  _log_info("[KNN] %s", "=" * 80, trial=trial)
+  logger.info("[KNN] %s", "=" * 80, trial=trial)
 
   rows = _knn_search_error_full_core(normalized,
                                      top_k=top_k,
@@ -322,7 +349,7 @@ def knn_search_error_full_with_norm(
                                      include_project=include_project,
                                      exclude_project=exclude_project)
 
-  _log_info(
+  logger.info(
       "[KNN] Final result: normalized length=%d, hits=%d",
       len(normalized),
       len(rows),
@@ -352,6 +379,7 @@ def knn_search_error_full(
   return rows
 
 
+@retry_cloudsql(max_retries=3, base_delay=2.0)
 def update_stats_from_buffer(
     stats_buffer: Dict[str, Dict[str, int]],
     trial: Optional[int] = None,
@@ -375,14 +403,14 @@ def update_stats_from_buffer(
     """
 
   if not stats_buffer:
-    _log_info(
+    logger.info(
         "update_stats_from_buffer: empty buffer, nothing to do.",
         trial=trial,
     )
     return
 
   if Connector is None:
-    _log_info(
+    logger.info(
         "Cloud SQL deps not available; "
         "update_stats_from_buffer() will be a no-op.",
         trial=trial,
@@ -423,7 +451,7 @@ def update_stats_from_buffer(
           last_used_at         = UTC_TIMESTAMP()
     """
 
-  with cloud_sql_connect_smart() as conn:
+  with cloud_sql_connect_smart(trial=trial) as conn:
     with conn.cursor() as cur:
       for entry_id, deltas in sorted(stats_buffer.items()):
         # Skip pure-zero deltas to avoid useless writes.
@@ -438,7 +466,7 @@ def update_stats_from_buffer(
             )):
           continue
 
-        params = {
+          params = {
             "id": str(entry_id),
             "retrieved": int(deltas.get("retrieved", 0)),
             "attempted": int(deltas.get("attempted", 0)),
@@ -448,7 +476,7 @@ def update_stats_from_buffer(
             "success_project": int(deltas.get("success_project", 0)),
         }
 
-        _log_info(
+        logger.info(
             "update_stats_from_buffer: updating stats for id=%s "
             "(Δretrieved=%d, Δattempted=%d, Δsuccess=%d, "
             "Δretrieved_project=%d, Δattempted_project=%d, "
@@ -467,7 +495,7 @@ def update_stats_from_buffer(
 
     conn.commit()
 
-  _log_info(
+  logger.info(
       "update_stats_from_buffer: flushed %d entries to stats table.",
       len(stats_buffer),
       trial=trial,
@@ -490,6 +518,7 @@ def _derive_func_name_from_benchmark(benchmark: Any) -> str:
   return fut or ""
 
 
+@retry_cloudsql(max_retries=3, base_delay=2.0)
 def maybe_register_successful_fix(*,
                                   raw_error_text: str,
                                   normalized_error_text: str,
@@ -520,7 +549,7 @@ def maybe_register_successful_fix(*,
            - llm_model (the model that produced this fix)
     """
   if Connector is None:
-    _log_info(
+    logger.info(
         "Cloud SQL deps not available; maybe_register_successful_fix() no-op.",
         trial=trial,
     )
@@ -534,7 +563,7 @@ def maybe_register_successful_fix(*,
     normalized = recomputed
 
   if not normalized.strip():
-    _log_info(
+    logger.info(
         "maybe_register_successful_fix: empty normalized text, skip.",
         trial=trial,
     )
@@ -542,7 +571,7 @@ def maybe_register_successful_fix(*,
 
   vec = _embed_normalized(normalized, embedder)
   if not vec:
-    _log_info(
+    logger.info(
         "maybe_register_successful_fix: embedding empty/failed, skip.",
         trial=trial,
     )
@@ -558,7 +587,7 @@ def maybe_register_successful_fix(*,
       if cls and cls.get("type"):
         error_type = str(cls["type"])
     except Exception as exc:  # noqa: BLE001
-      _log_warning(
+      logger.warning(
           "maybe_register_successful_fix: classify_error failed: %s",
           exc,
           trial=trial,
@@ -569,7 +598,7 @@ def maybe_register_successful_fix(*,
   # 3) check if a very similar entry already exists for this project.
   dedup_threshold = 0.04  # tune as needed
 
-  with cloud_sql_connect_smart() as conn:
+  with cloud_sql_connect_smart(trial=trial) as conn:
     with conn.cursor() as cur:
       dedup_sql = """
                 SELECT
@@ -588,7 +617,7 @@ def maybe_register_successful_fix(*,
 
       if row is not None:
         existing_id, dist = row[0], float(row[1])
-        _log_info(
+        logger.info(
             "maybe_register_successful_fix: "
             "nearest existing entry id=%s, dist=%.6f",
             existing_id,
@@ -596,12 +625,23 @@ def maybe_register_successful_fix(*,
             trial=trial,
         )
         if dist <= dedup_threshold:
-          _log_info(
+          logger.info(
               "maybe_register_successful_fix: "
               "similar entry already in DB, skip insert.",
               trial=trial,
           )
           return
+
+      func_name_max = 500
+      if len(func_name) > func_name_max:
+        logger.warning(
+            "maybe_register_successful_fix: func_name is %d chars; "
+            "truncating to %d.",
+            len(func_name),
+            func_name_max,
+            trial=trial,
+        )
+        func_name = func_name[:func_name_max]
 
       # 4) Insert new entry.
       new_id = str(uuid.uuid4())
@@ -650,7 +690,7 @@ def maybe_register_successful_fix(*,
           "llm_model": llm_model or "",
       }
 
-      _log_info(
+      logger.info(
           "maybe_register_successful_fix: inserting new entry id=%s "
           "(project=%s, error_type=%s, func_name=%s, llm_model=%s)",
           new_id,
@@ -664,7 +704,7 @@ def maybe_register_successful_fix(*,
 
     conn.commit()
 
-  _log_info(
+  logger.info(
       "maybe_register_successful_fix: successfully inserted new entry.",
       trial=trial,
   )

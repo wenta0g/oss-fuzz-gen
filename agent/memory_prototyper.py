@@ -953,7 +953,7 @@ class MemoryPrototyper(Prototyper):
       _, plan = self._maybe_get_memory_plan(build_result)
     except Exception as e:
       logger.error(
-          f"***** failed to get memory plan, error: {e}*****", trial=build_result.trial)
+          "***** failed to get memory plan, error: %s*****", e, trial=build_result.trial)
       plan = None
     extra_hints = ""
     if plan is not None:
