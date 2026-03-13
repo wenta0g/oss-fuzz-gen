@@ -267,6 +267,10 @@ def parse_args() -> argparse.Namespace:
                       choices=['all', 'exclude-current', 'only-current'],
                       default='all',
                       help='Project-based filter for error memory retrieval.')
+  parser.add_argument('--use-function-analyzer',
+                      action='store_true',
+                      default=False,
+                      help='Enables function analyzer.')
 
   args = parser.parse_args()
   if args.num_samples:
