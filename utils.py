@@ -41,9 +41,8 @@ def deserialize_from_dill(dill_path: Any) -> Any:
       obj = dill.load(f)
     logging.info('Deserialized %s to %s', dill_path, obj)
     return obj
-  except FileNotFoundError as e:
-    logging.error('Failed to deserialize %s: File does not exist: %s',
-                  dill_path, e)
+  except Exception as e:
+    logging.error('Failed to deserialize %s: %s', dill_path, e)
     return None
 
 

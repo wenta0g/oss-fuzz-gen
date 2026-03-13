@@ -269,7 +269,8 @@ def _fuzzing_pipeline(benchmark: Benchmark, model: models.LLM,
   elif args.agent:
 
     writer_agents = []
-    if getattr(args, 'use_function_analyzer', False):
+    if (('gemini' in args.model or 'vertex' in args.model) and
+        not getattr(args, 'no_function_analyzer', False)):
       writer_agents.append(
           FunctionAnalyzer(trial=trial,
                            llm=model,
@@ -305,7 +306,8 @@ def _fuzzing_pipeline(benchmark: Benchmark, model: models.LLM,
                           ])
   else:
     writer_agents = []
-    if getattr(args, 'use_function_analyzer', False):
+    if (('gemini' in args.model or 'vertex' in args.model) and
+        not getattr(args, 'no_function_analyzer', False)):
       writer_agents.append(
           FunctionAnalyzer(trial=trial,
                            llm=model,

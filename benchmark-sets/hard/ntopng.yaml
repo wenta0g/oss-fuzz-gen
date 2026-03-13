@@ -1,11 +1,17 @@
-"functions":
-- "name": "_ZN13PcapInterface18startPacketPollingEv"
-  "params":
-  - "name": "this"
-    "type": "bool "
-  "return_type": "void"
-  "signature": "void PcapInterface::startPacketPolling()"
-"language": "c++"
-"project": "ntopng"
-"target_name": "fuzz_dissect_packet"
-"target_path": "/src/ntopng/fuzz/fuzz_dissect_packet.cpp"
+language: c++
+project: ntopng
+target_name: fuzz_dissect_packet
+target_path: /src/ntopng/fuzz/fuzz_dissect_packet.cpp
+functions:
+- name: _ZN13PcapInterface18startPacketPollingEv
+  params:
+  - name: this
+    type: 'bool '
+  return_type: void
+  signature: void PcapInterface::startPacketPolling()
+- name: _ZN21ZMQCollectorInterface18startPacketPollingEv
+  params:
+  - name: this
+    type: 'bool '
+  return_type: void
+  signature: void ZMQCollectorInterface::startPacketPolling()
