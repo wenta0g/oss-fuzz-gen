@@ -265,6 +265,9 @@ def _knn_search_error_full_core(
   if exclude_project:
     sql += " AND project != %s"
     params.append(exclude_project)
+  if include_model:
+    sql += " AND llm_model = %s"
+    params.append(include_model)
 
   sql += """
         ORDER BY dist ASC
@@ -319,7 +322,8 @@ def knn_search_error_full_with_norm(
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
     include_project: Optional[str] = None,
-    exclude_project: Optional[str] = None
+    exclude_project: Optional[str] = None,
+    include_model: Optional[str] = None
 ) -> Tuple[str, List[Dict[str, Any]]]:
   """KNN that returns BOTH the normalized error text and the hits.
 
@@ -347,7 +351,8 @@ def knn_search_error_full_with_norm(
                                      embedder=embedder,
                                      confidence_levels=confidence_levels,
                                      include_project=include_project,
-                                     exclude_project=exclude_project)
+                                     exclude_project=exclude_project,
+                                     include_model=include_model)
 
   logger.info(
       "[KNN] Final result: normalized length=%d, hits=%d",
@@ -366,7 +371,8 @@ def knn_search_error_full(
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
     include_project: Optional[str] = None,
-    exclude_project: Optional[str] = None) -> List[Dict[str, Any]]:
+    exclude_project: Optional[str] = None,
+    include_model: Optional[str] = None) -> List[Dict[str, Any]]:
   """Legacy API: returns only the list of hits."""
   _, rows = knn_search_error_full_with_norm(
       query_error_text,
@@ -375,7 +381,8 @@ def knn_search_error_full(
       embedder=embedder,
       confidence_levels=confidence_levels,
       include_project=include_project,
-      exclude_project=exclude_project)
+      exclude_project=exclude_project,
+      include_model=include_model)
   return rows
 
 

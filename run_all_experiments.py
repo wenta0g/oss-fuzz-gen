@@ -267,6 +267,10 @@ def parse_args() -> argparse.Namespace:
                       choices=['all', 'exclude-current', 'only-current'],
                       default='all',
                       help='Project-based filter for error memory retrieval.')
+  parser.add_argument('--memory-model-filter',
+                      type=str,
+                      default=None,
+                      help='Model-based filter for error memory retrieval.')
   parser.add_argument('--no-function-analyzer',
                       action='store_true',
                       default=False,

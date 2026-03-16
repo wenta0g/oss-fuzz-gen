@@ -772,6 +772,7 @@ class MemoryPrototyper(Prototyper):
     bench = build_result.benchmark
     current_project = getattr(bench, "project", "") or ""
     project_filter = getattr(self.args, "memory_project_filter", "all")
+    model_filter = getattr(self.args, "memory_model_filter", None)
     include_project = None
     exclude_project = None
 
@@ -786,7 +787,8 @@ class MemoryPrototyper(Prototyper):
         trial=build_result.trial,
         embedder=self.text_embedding_model,
         include_project=include_project,
-        exclude_project=exclude_project)
+        exclude_project=exclude_project,
+        include_model=model_filter)
 
     if not hits:
       # KNN executed but found no neighbors for this round.
