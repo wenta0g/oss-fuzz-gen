@@ -211,7 +211,8 @@ def _knn_search_error_full_core(
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
     include_project: Optional[str] = None,
-    exclude_project: Optional[str] = None) -> List[Dict[str, Any]]:
+    exclude_project: Optional[str] = None,
+    include_model: Optional[str] = None) -> List[Dict[str, Any]]:
   """Core KNN lookup given an already-normalized error string."""
   # Default to confidence levels 2 and 3 if not specified
   if confidence_levels is None:
