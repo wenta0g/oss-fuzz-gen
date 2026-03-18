@@ -18,8 +18,8 @@ from google.cloud.sql.connector import Connector, IPTypes
 import logger  # OFG's structured logger
 from llm_toolkit.text_embedder import VertexEmbeddingModel
 
-from .errors import (classify_error, latest_stderr_block, normalize_err_text,
-                     normalize_err_text_fallback)
+from .errors import (DEFAULT_NORM_MAX_CHARS, classify_error, latest_stderr_block,
+                     normalize_err_text, normalize_err_text_fallback)
 
 import time
 import functools
@@ -180,12 +180,13 @@ def cloud_sql_connect_smart(trial: Optional[int] = None):
       conn.close()
 
 
-def _prepare_normalized(query_error_text: str) -> Tuple[str, str]:
+def _prepare_normalized(query_error_text: str,
+                        max_chars: int = 3200) -> Tuple[str, str]:
   raw = query_error_text or ""
   stderr_text = latest_stderr_block(raw) or raw
-  normalized = normalize_err_text(stderr_text)
+  normalized = normalize_err_text(stderr_text, max_chars=max_chars)
   if stderr_text and not normalized.strip():
-    normalized = normalize_err_text_fallback(stderr_text)
+    normalized = normalize_err_text_fallback(stderr_text, max_chars=max_chars)
   return stderr_text, normalized
 
 
@@ -324,7 +325,8 @@ def knn_search_error_full_with_norm(
     confidence_levels: Optional[List[int]] = None,
     include_project: Optional[str] = None,
     exclude_project: Optional[str] = None,
-    include_model: Optional[str] = None
+    include_model: Optional[str] = None,
+    max_chars: int = DEFAULT_NORM_MAX_CHARS,
 ) -> Tuple[str, List[Dict[str, Any]]]:
   """KNN that returns BOTH the normalized error text and the hits.
 
@@ -339,14 +341,23 @@ def knn_search_error_full_with_norm(
     )
     return "", []
 
-  _, normalized = _prepare_normalized(query_error_text)
+  stderr_text, normalized_for_search = _prepare_normalized(
+      query_error_text, max_chars=DEFAULT_NORM_MAX_CHARS)
 
-  logger.info("\n[KNN] Normalized error text being embedded:\n%s",
-            normalized,
-            trial=trial)
+  if max_chars != DEFAULT_NORM_MAX_CHARS:
+    normalized_for_display = normalize_err_text(stderr_text,
+                                                max_chars=max_chars)
+    if stderr_text and not normalized_for_display.strip():
+      normalized_for_display = normalize_err_text_fallback(stderr_text,
+                                                           max_chars=max_chars)
+  else:
+    normalized_for_display = normalized_for_search
+
+  logger.info("\n[KNN] Normalized error text being embedded (len=%d):\n%s",
+            len(normalized_for_search), normalized_for_search, trial=trial)
   logger.info("[KNN] %s", "=" * 80, trial=trial)
 
-  rows = _knn_search_error_full_core(normalized,
+  rows = _knn_search_error_full_core(normalized_for_search,
                                      top_k=top_k,
                                      trial=trial,
                                      embedder=embedder,
@@ -356,13 +367,13 @@ def knn_search_error_full_with_norm(
                                      include_model=include_model)
 
   logger.info(
-      "[KNN] Final result: normalized length=%d, hits=%d",
-      len(normalized),
+      "[KNN] Final result: display normalized length=%d, hits=%d",
+      len(normalized_for_display),
       len(rows),
       trial=trial,
   )
 
-  return normalized, rows
+  return normalized_for_display, rows
 
 
 def knn_search_error_full(

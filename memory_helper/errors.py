@@ -29,6 +29,10 @@ ERROR_SIGNATURE = re.compile(
     r"cmake error|make: \*\*\*.+Error"
     r")")
 
+# Default maximum characters for error normalization to ensure consistency
+# across vector search embeddings.
+DEFAULT_NORM_MAX_CHARS = 3200
+
 
 def _dedup_consecutive(lines: List[str]) -> List[str]:
   out: List[str] = []
@@ -78,7 +82,7 @@ def _squash_whitespace_per_line(lines: List[str]) -> List[str]:
   return out
 
 
-def normalize_err_text(stderr: str, max_chars: int = 3200) -> str:
+def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> str:
   """Find normalized error text"""
   if not stderr:
     return ""
@@ -105,12 +109,24 @@ def normalize_err_text(stderr: str, max_chars: int = 3200) -> str:
     focused = "\n".join(cleaned_lines)
 
   if len(focused) > max_chars:
-    focused = focused[:max_chars] + " ...(truncated)..."
+    if match_idx is not None:
+      # We know where the error is: cut from the FRONT (pre-error boilerplate)
+      # so the actual error line and context after it are always preserved.
+      overflow = len(focused) - max_chars
+      snap = focused.find("\n", overflow)
+      cut = snap if snap != -1 else overflow
+      focused = f"...(truncated {cut} chars)...\n" + focused[cut:]
+    else:
+      # No error anchor: cut from the end at a line boundary.
+      cut = focused.rfind("\n", 0, max_chars)
+      if cut == -1:
+        cut = max_chars
+      focused = focused[:cut] + f" ...(truncated {len(focused) - cut} chars)..."
 
   return focused
 
 
-def normalize_err_text_fallback(stderr: str, max_chars: int = 3200) -> str:
+def normalize_err_text_fallback(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> str:
   """Find normalized error text fallback"""
   if not stderr:
     return ""
@@ -126,7 +142,11 @@ def normalize_err_text_fallback(stderr: str, max_chars: int = 3200) -> str:
   focused = "\n".join(cleaned_lines)
 
   if len(focused) > max_chars:
-    focused = focused[:max_chars] + " ...(truncated)..."
+    # Snap to the nearest preceding newline so we never cut mid-flag or mid-word.
+    cut = focused.rfind("\n", 0, max_chars)
+    if cut == -1:
+      cut = max_chars
+    focused = focused[:cut] + f" ...(truncated {len(focused) - cut} chars)..."
 
   return focused
 

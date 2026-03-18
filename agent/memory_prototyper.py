@@ -788,7 +788,9 @@ class MemoryPrototyper(Prototyper):
         embedder=self.text_embedding_model,
         include_project=include_project,
         exclude_project=exclude_project,
-        include_model=model_filter)
+        include_model=model_filter,
+        max_chars=3600,  # Slightly larger window for planner context only.
+    )
 
     if not hits:
       # KNN executed but found no neighbors for this round.
@@ -852,10 +854,23 @@ class MemoryPrototyper(Prototyper):
         "language": getattr(bench, "language", "") or "",
         "target_name": getattr(bench, "target_name", "") or "",
         "function_signature": function_signature,
-        "compile_log":
-            query_text[-2000:],  # get the bottom of the stderr block as context
-        "fuzz_target": fuzz_target_source[:2000],
-        "build_script": build_script_source[:2000],
+        # Only include compile_log when it adds context beyond CURRENT_ERROR.
+        # If compile_err was non-empty it was used as the query — CURRENT_ERROR
+        # already carries the normalised form of that same text, so adding the
+        # raw log here would be pure noise.  When only compile_log was available
+        # (compile_err is empty) we include it as supplementary raw context.
+        **({"compile_log": self.smart_truncate_log(
+            query_text, max_chars=2000, raw_err_text=compile_err
+        )} if not compile_err.strip() else {}),
+        "fuzz_target": fuzz_target_source[:3000],
+        # Show a descriptive label when no custom build script was generated,
+        # so the planner knows the project uses its default OSS-Fuzz build script.
+        "build_script": (
+            build_script_source[:3000]
+            if build_script_source.strip()
+            else "Build script reuses `/src/build.bk.sh` "
+                 "(project's default OSS-Fuzz build script)."
+        ),
         "prototyper_failure_prompt": prototyper_failure_prompt,
     }
 
