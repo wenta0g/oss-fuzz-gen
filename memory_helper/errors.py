@@ -26,7 +26,8 @@ ERROR_SIGNATURE = re.compile(
     r"error:|fatal error:|undefined reference|collect2: error|ld: error|"
     r"linker command failed|cannot create executables|"
     r"FAILED:|ninja: build stopped|No rule to make target|"
-    r"cmake error|make: \*\*\*.+Error"
+    r"cmake error|make: \*\*\*.+Error|"
+    r"command not found|syntax error|unexpected EOF|No such file or directory"
     r")")
 
 # Default maximum characters for error normalization to ensure consistency
@@ -98,7 +99,14 @@ def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> 
   for i, ln in enumerate(cleaned_lines):
     if ERROR_SIGNATURE.search(ln):
       match_idx = i
+      # For compiler errors, the first one is usually the root cause.
+      # For others (linker/shell), the last one might be more relevant.
+      # Given we redaction paths, sticking to the first match is generally safer
+      # for stability.
       break
+
+  if match_idx is None:
+    match_idx = find_anchor(cleaned_lines)
 
   if match_idx is not None:
     pre, post = 40, 40
@@ -225,8 +233,18 @@ class ErrorPatternClassifier:
                 f"[WARN] invalid regex in error_patterns.yaml: {pattern}",
                 trial=trial,
             )
-            continue
+    return None
 
+  def find_anchor_idx(self, lines: List[str]) -> Optional[int]:
+    """Find the index of the first line that matches any pattern in the YAML."""
+    for i, line in enumerate(lines):
+      for data in self.error_db.values():
+        for pattern in data.get("patterns", []):
+          try:
+            if re.search(pattern, line, re.IGNORECASE):
+              return i
+          except re.error:
+            continue
     return None
 
 
@@ -241,6 +259,12 @@ def _get_global_classifier() -> ErrorPatternClassifier:
   if _GLOBAL_ERROR_CLASSIFIER is None:
     _GLOBAL_ERROR_CLASSIFIER = ErrorPatternClassifier()
   return _GLOBAL_ERROR_CLASSIFIER
+
+
+def find_anchor(lines: List[str]) -> Optional[int]:
+  """Find the index of the first matching line using YAML patterns."""
+  clf = _get_global_classifier()
+  return clf.find_anchor_idx(lines)
 
 
 def classify_error(

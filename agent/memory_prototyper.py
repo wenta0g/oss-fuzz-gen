@@ -16,7 +16,7 @@ from llm_toolkit.text_embedder import VertexEmbeddingModel
 from memory_helper.cloudsql import (knn_search_error_full_with_norm,
                                     maybe_register_successful_fix,
                                     update_stats_from_buffer)
-from memory_helper.errors import ERROR_SIGNATURE
+from memory_helper.errors import (ERROR_SIGNATURE, find_anchor)
 from results import BuildResult, Result
 
 MAX_CANDIDATES = 5
@@ -117,10 +117,21 @@ class MemoryPrototyper(Prototyper):
   def pinpoint_err_msg_location_idx(self, raw_err_text: str) -> int:
     """Use pattern matching heuristics to pinpoint the
     true error message from stderr noise"""
-    last_match = None
-    for match in ERROR_SIGNATURE.finditer(raw_err_text):
-      last_match = match
-    return last_match.start() if last_match else -1
+    match = ERROR_SIGNATURE.search(raw_err_text)
+    if match:
+      return match.start()
+
+    # Fallback: check YAML patterns
+    lines = raw_err_text.splitlines()
+    match_idx = find_anchor(lines)
+    if match_idx is not None:
+      # find character offset of start of line match_idx
+      offset = 0
+      for i in range(match_idx):
+        offset += len(lines[i]) + 1  # +1 for newline
+      return offset
+
+    return -1
 
   def smart_truncate_log(self,
                          text: str,
@@ -151,17 +162,23 @@ class MemoryPrototyper(Prototyper):
               start_index:end_index] + "</stderr>"
 
       # get the correct stderr content, do smart truncation
-      if len(stderr_content) < max_chars:
+      # Ensure we always preserve <stderr> and </stderr> tags.
+      inner_start = stderr_start + 8
+      inner_end = stderr_end
+      inner_content = text[inner_start:inner_end]
+
+      if len(inner_content) < max_chars:
         return (f"...[context]...\n{text[:stderr_start]}\n"
-                f"...[truncated]...\n{stderr_content}")
-      return f"...[truncated]...\n{stderr_content[-max_chars:]}"
+                f"...[truncated]...\n<stderr>{inner_content}</stderr>")
+      # Keep the HEAD of the stderr when too long and no anchor found.
+      return f"<stderr>\n{inner_content[:max_chars]}\n...[truncated]...\n</stderr>"
 
     # no stderr tag found, just return given the length
     if len(text) <= max_chars:
       return text
 
-    # fallback to standard tail truncation
-    return f"...[truncated]...\n{text[-max_chars:]}"
+    # fallback to head truncation (consistency with normalize_err_text/DB)
+    return f"{text[:max_chars]}\n...[truncated]..."
 
   def _get_confidence_note(self, plan: dict) -> str:
     """Returns a note explanation based on the confidence score."""
