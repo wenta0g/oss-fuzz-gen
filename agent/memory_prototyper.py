@@ -170,15 +170,15 @@ class MemoryPrototyper(Prototyper):
       if len(inner_content) < max_chars:
         return (f"...[context]...\n{text[:stderr_start]}\n"
                 f"...[truncated]...\n<stderr>{inner_content}</stderr>")
-      # Keep the HEAD of the stderr when too long and no anchor found.
-      return f"<stderr>\n{inner_content[:max_chars]}\n...[truncated]...\n</stderr>"
+      # Keep the TAIL of the stderr when too long and no anchor found.
+      return f"<stderr>\n...[truncated]...\n{inner_content[-max_chars:]}\n</stderr>"
 
     # no stderr tag found, just return given the length
     if len(text) <= max_chars:
       return text
 
-    # fallback to head truncation (consistency with normalize_err_text/DB)
-    return f"{text[:max_chars]}\n...[truncated]..."
+    # fallback to tail truncation (consistency with normalize_err_text/DB)
+    return f"...[truncated]...\n{text[-max_chars:]}"
 
   def _get_confidence_note(self, plan: dict) -> str:
     """Returns a note explanation based on the confidence score."""
@@ -806,7 +806,7 @@ class MemoryPrototyper(Prototyper):
         include_project=include_project,
         exclude_project=exclude_project,
         include_model=model_filter,
-        max_chars=3600,  # Slightly larger window for planner context only.
+        max_chars=4000,  # Slightly larger window for planner context only.
     )
 
     if not hits:

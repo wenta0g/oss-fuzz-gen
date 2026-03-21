@@ -14,10 +14,10 @@ import logger
 
 ANSI_ESC = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 SHELL_NOISE = re.compile(
-    r"^(?:\+{1,2}\s?.*|pushd\b.*|popd\b.*|mkdir(?:\s|-p)\b.*|cp\b.*|zip\b.*"
-    r"|cd\b\s.*|.*installing 'config/.*"
+    r"^\s*(?:\+{1,2}\s?.*|pushd\b.*|popd\b.*|mkdir(?:\s|-p)\b.*|cp\b.*|zip\b.*|cd\b\s.*"
+    r"|.*installing 'config/.*|\.\.\.\(truncated \d+ chars\)\.\.\."
     r"|sysctl: setting key \"vm\.mmap_rnd_bits\".*"
-    r")$",
+    r")\s*$",
     re.IGNORECASE,
 )
 
@@ -27,12 +27,13 @@ ERROR_SIGNATURE = re.compile(
     r"linker command failed|cannot create executables|"
     r"FAILED:|ninja: build stopped|No rule to make target|"
     r"cmake error|make: \*\*\*.+Error|"
-    r"command not found|syntax error|unexpected EOF|No such file or directory"
+    r"command not found|syntax error|unexpected EOF|No such file or directory|"
+    r"meson\.build:\d+:\d+: ERROR:"
     r")")
 
 # Default maximum characters for error normalization to ensure consistency
 # across vector search embeddings.
-DEFAULT_NORM_MAX_CHARS = 3200
+DEFAULT_NORM_MAX_CHARS = 3600
 
 
 def _dedup_consecutive(lines: List[str]) -> List[str]:
@@ -92,44 +93,52 @@ def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> 
   lines = [ln for ln in txt.splitlines() if not SHELL_NOISE.match(ln)]
   lines = _limit_include_stack(lines, max_keep=4)
   lines = _dedup_consecutive(lines)
-  redacted = _redact_paths_and_lines_keep_newlines("\n".join(lines))
-  cleaned_lines = _squash_whitespace_per_line(redacted.splitlines())
 
+  # Find anchor before redaction to allow YAML patterns to match raw paths
   match_idx = None
-  for i, ln in enumerate(cleaned_lines):
+  for i, ln in enumerate(lines):
     if ERROR_SIGNATURE.search(ln):
       match_idx = i
-      # For compiler errors, the first one is usually the root cause.
-      # For others (linker/shell), the last one might be more relevant.
-      # Given we redaction paths, sticking to the first match is generally safer
-      # for stability.
       break
 
   if match_idx is None:
-    match_idx = find_anchor(cleaned_lines)
+    match_idx = find_anchor(lines)
+
+  # Redact and squash
+  redacted = _redact_paths_and_lines_keep_newlines("\n".join(lines))
+  cleaned_lines = _squash_whitespace_per_line(redacted.splitlines())
 
   if match_idx is not None:
     pre, post = 40, 40
     start = max(0, match_idx - pre)
-    end = min(len(cleaned_lines), match_idx + post + 1)
-    focused = "\n".join(cleaned_lines[start:end])
+    end = min(len(lines), match_idx + post + 1)
+    focused_raw = "\n".join(lines[start:end])
+    focused = _redact_paths_and_lines_keep_newlines(focused_raw)
+    focused = "\n".join(_squash_whitespace_per_line(focused.splitlines()))
   else:
     focused = "\n".join(cleaned_lines)
 
+  # Emergency fallback
+  if not focused.strip() and stderr:
+    focused = f"Raw log tail: {stderr[-200:].strip()}"
+
   if len(focused) > max_chars:
     if match_idx is not None:
-      # We know where the error is: cut from the FRONT (pre-error boilerplate)
-      # so the actual error line and context after it are always preserved.
       overflow = len(focused) - max_chars
       snap = focused.find("\n", overflow)
       cut = snap if snap != -1 else overflow
       focused = f"...(truncated {cut} chars)...\n" + focused[cut:]
     else:
-      # No error anchor: cut from the end at a line boundary.
-      cut = focused.rfind("\n", 0, max_chars)
-      if cut == -1:
-        cut = max_chars
-      focused = focused[:cut] + f" ...(truncated {len(focused) - cut} chars)..."
+      # No error anchor: cut from the START to keep the TAIL at a line boundary.
+      overflow = len(focused) - max_chars
+      snap = focused.find("\n", overflow)
+      cut = snap if snap != -1 else overflow
+      focused = f"...(truncated {cut} chars)...\n" + focused[cut:]
+
+  # Optional runtime logging for debugging
+  logger.info(f"[KNN] Normalized error text being embedded (len={len(focused)}):")
+  for ln in focused.splitlines():
+    logger.info(f"      {ln}")
 
   return focused
 
