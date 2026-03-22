@@ -181,10 +181,11 @@ def cloud_sql_connect_smart(trial: Optional[int] = None):
 
 
 def _prepare_normalized(query_error_text: str,
-                        max_chars: int = 3200) -> Tuple[str, str]:
+                        max_chars: int = 3200,
+                        trial: Optional[int] = None) -> Tuple[str, str]:
   raw = query_error_text or ""
   stderr_text = latest_stderr_block(raw) or raw
-  normalized = normalize_err_text(stderr_text, max_chars=max_chars)
+  normalized = normalize_err_text(stderr_text, max_chars=max_chars, trial=trial)
   if stderr_text and not normalized.strip():
     normalized = normalize_err_text_fallback(stderr_text, max_chars=max_chars)
   return stderr_text, normalized
@@ -342,11 +343,12 @@ def knn_search_error_full_with_norm(
     return "", []
 
   stderr_text, normalized_for_search = _prepare_normalized(
-      query_error_text, max_chars=DEFAULT_NORM_MAX_CHARS)
+      query_error_text, max_chars=DEFAULT_NORM_MAX_CHARS, trial=trial)
 
   if max_chars != DEFAULT_NORM_MAX_CHARS:
     normalized_for_display = normalize_err_text(stderr_text,
-                                                max_chars=max_chars)
+                                                max_chars=max_chars,
+                                                trial=trial)
     if stderr_text and not normalized_for_display.strip():
       normalized_for_display = normalize_err_text_fallback(stderr_text,
                                                            max_chars=max_chars)
@@ -578,7 +580,7 @@ def maybe_register_successful_fix(*,
   normalized = normalized_error_text or ""
   if not normalized.strip():
     # Fallback: recompute from raw_error_text if needed.
-    _, recomputed = _prepare_normalized(raw_error_text)
+    _, recomputed = _prepare_normalized(raw_error_text, trial=trial)
     normalized = recomputed
 
   if not normalized.strip():

@@ -84,7 +84,9 @@ def _squash_whitespace_per_line(lines: List[str]) -> List[str]:
   return out
 
 
-def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> str:
+def normalize_err_text(stderr: str,
+                       max_chars: int = DEFAULT_NORM_MAX_CHARS,
+                       trial: Optional[int] = None) -> str:
   """Find normalized error text"""
   if not stderr:
     return ""
@@ -102,7 +104,7 @@ def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> 
       break
 
   if match_idx is None:
-    match_idx = find_anchor(lines)
+    match_idx = find_anchor(lines, trial=trial)
 
   # Redact and squash
   redacted = _redact_paths_and_lines_keep_newlines("\n".join(lines))
@@ -136,9 +138,10 @@ def normalize_err_text(stderr: str, max_chars: int = DEFAULT_NORM_MAX_CHARS) -> 
       focused = f"...(truncated {cut} chars)...\n" + focused[cut:]
 
   # Optional runtime logging for debugging
-  logger.info(f"[KNN] Normalized error text being embedded (len={len(focused)}):")
+  logger.info(f"[KNN] Normalized error text being embedded (len={len(focused)}):",
+              trial=trial)
   for ln in focused.splitlines():
-    logger.info(f"      {ln}")
+    logger.info(f"      {ln}", trial=trial)
 
   return focused
 
@@ -270,7 +273,7 @@ def _get_global_classifier() -> ErrorPatternClassifier:
   return _GLOBAL_ERROR_CLASSIFIER
 
 
-def find_anchor(lines: List[str]) -> Optional[int]:
+def find_anchor(lines: List[str], trial: Optional[int] = None) -> Optional[int]:
   """Find the index of the first matching line using YAML patterns."""
   clf = _get_global_classifier()
   return clf.find_anchor_idx(lines)
