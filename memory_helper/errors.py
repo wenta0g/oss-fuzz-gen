@@ -137,11 +137,6 @@ def normalize_err_text(stderr: str,
       cut = snap if snap != -1 else overflow
       focused = f"...(truncated {cut} chars)...\n" + focused[cut:]
 
-  # Optional runtime logging for debugging
-  logger.info(f"[KNN] Normalized error text being embedded (len={len(focused)}):",
-              trial=trial)
-  for ln in focused.splitlines():
-    logger.info(f"      {ln}", trial=trial)
 
   return focused
 

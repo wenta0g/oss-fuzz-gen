@@ -273,7 +273,7 @@ def _knn_search_error_full_core(
     params.append(include_model)
 
   sql += """
-        ORDER BY dist ASC
+        ORDER BY dist ASC, confidence_level DESC
         LIMIT %s
     """
   params.append(top_k)
