@@ -790,6 +790,8 @@ class MemoryPrototyper(Prototyper):
     current_project = getattr(bench, "project", "") or ""
     project_filter = getattr(self.args, "memory_project_filter", "all")
     model_filter = getattr(self.args, "memory_model_filter", None)
+    created_before_or_on = getattr(self.args, "memory_created_before_or_on",
+                                   None)
     include_project = None
     exclude_project = None
 
@@ -803,6 +805,7 @@ class MemoryPrototyper(Prototyper):
         top_k=5,
         trial=build_result.trial,
         embedder=self.text_embedding_model,
+        created_before_or_on=created_before_or_on,
         include_project=include_project,
         exclude_project=exclude_project,
         include_model=model_filter,

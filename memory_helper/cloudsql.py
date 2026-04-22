@@ -212,6 +212,7 @@ def _knn_search_error_full_core(
     embedder: VertexEmbeddingModel,
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
+    created_before_or_on: Optional[str] = None,
     include_project: Optional[str] = None,
     exclude_project: Optional[str] = None,
     include_model: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -262,6 +263,9 @@ def _knn_search_error_full_core(
         WHERE confidence_level IN ({placeholders})
     """
   params: List[Any] = [vec_str] + confidence_levels
+  if created_before_or_on:
+    sql += " AND DATE(created_at) <= %s"
+    params.append(created_before_or_on)
   if include_project:
     sql += " AND project = %s"
     params.append(include_project)
@@ -324,6 +328,7 @@ def knn_search_error_full_with_norm(
     top_k: int = 5,
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
+    created_before_or_on: Optional[str] = None,
     include_project: Optional[str] = None,
     exclude_project: Optional[str] = None,
     include_model: Optional[str] = None,
@@ -364,6 +369,7 @@ def knn_search_error_full_with_norm(
                                      trial=trial,
                                      embedder=embedder,
                                      confidence_levels=confidence_levels,
+                                     created_before_or_on=created_before_or_on,
                                      include_project=include_project,
                                      exclude_project=exclude_project,
                                      include_model=include_model)
@@ -384,6 +390,7 @@ def knn_search_error_full(
     top_k: int = 5,
     trial: Optional[int] = None,
     confidence_levels: Optional[List[int]] = None,
+    created_before_or_on: Optional[str] = None,
     include_project: Optional[str] = None,
     exclude_project: Optional[str] = None,
     include_model: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -394,6 +401,7 @@ def knn_search_error_full(
       trial=trial,
       embedder=embedder,
       confidence_levels=confidence_levels,
+      created_before_or_on=created_before_or_on,
       include_project=include_project,
       exclude_project=exclude_project,
       include_model=include_model)
@@ -550,6 +558,7 @@ def maybe_register_successful_fix(*,
                                   build_script_source: str,
                                   fix_action_text: str = "",
                                   patch_text: str = "",
+                                  confidence_level: int = 3,
                                   llm_model: str = "",
                                   trial: Optional[int] = None) -> None:
   """Best-effort updater: register a new successful fix into `entries`.
@@ -567,6 +576,7 @@ def maybe_register_successful_fix(*,
            - orig_build_script, orig_fuzz_target
            - patch_text, fix_action
            - error_text_norm, embedding
+           - confidence_level (3 by default for verified successful fixes)
            - llm_model (the model that produced this fix)
     """
   if Connector is None:
@@ -678,6 +688,7 @@ def maybe_register_successful_fix(*,
                   fix_action,
                   error_text_norm,
                   embedding,
+                  confidence_level,
                   llm_model
                 )
                 VALUES (
@@ -691,6 +702,7 @@ def maybe_register_successful_fix(*,
                   %(fix_action)s,
                   %(error_text_norm)s,
                   string_to_vector(%(embedding_json)s),
+                  %(confidence_level)s,
                   %(llm_model)s
                 )
             """
@@ -708,16 +720,19 @@ def maybe_register_successful_fix(*,
           "fix_action": fix_action_text or "",
           "error_text_norm": normalized,
           "embedding_json": vec_str,
+          "confidence_level": confidence_level,
           "llm_model": llm_model or "",
       }
 
       logger.info(
           "maybe_register_successful_fix: inserting new entry id=%s "
-          "(project=%s, error_type=%s, func_name=%s, llm_model=%s)",
+          "(project=%s, error_type=%s, func_name=%s, confidence_level=%s, "
+          "llm_model=%s)",
           new_id,
           params["project"],
           params["error_type"],
           params["func_name"],
+          params["confidence_level"],
           params["llm_model"],
           trial=trial,
       )
