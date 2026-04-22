@@ -285,10 +285,12 @@ def _knn_search_error_full_core(
   rows: List[Dict[str, Any]] = []
   with cloud_sql_connect_smart(trial=trial) as conn:
     with conn.cursor() as cur:
-      logger.info("[KNN] Executing SQL top_k=%d, conf=%s",
-                top_k,
-                confidence_levels,
-                trial=trial)
+      logger.info("[KNN] Executing SQL top_k=%d, conf=%s, "
+                  "created_before_or_on=%s",
+                  top_k,
+                  confidence_levels,
+                  created_before_or_on,
+                  trial=trial)
       cur.execute(sql, tuple(params))
       fetched = cur.fetchall()
       logger.info("[KNN] SQL returned %d rows.", len(fetched), trial=trial)
